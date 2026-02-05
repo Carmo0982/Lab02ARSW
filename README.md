@@ -200,6 +200,15 @@ la varaible no se comparte en cada hilo, es una variable "privada" de cada hilo.
 El problema es que HashSet no es una colección segura para hilos. Cuando varias serpientes interactua al mismo tiempo con estas colecciones, pueden ocurrir condiciones de carrera. En el caso de los ratones, si una serpiente se come un ratón, el ratón debe ser 
 eliminado del Hash y además se debe poner un nuevo ratón aleatoriamente en el tablero y se debe agregar a la colección. Si otra serpiente modifíca la colección al mismo tiempo, puede que halla un resultado incosistente.
 
-- HashMap:
+- HashMap: la clase Board utiliza esta estructura de datos para guardar `teleports`.
+
+HashMap tampoco es thread-safe. Si no se protegiera adecuadamente, accesos concurrentes podrían causar inconsistencias en los pares de teletransporte.
+
+
 **Sincronización innecesaria**
+![Captura de pantalla 2026-02-05 113609.png](src/img/Captura%20de%20pantalla%202026-02-05%20113609.png)
+
+En la imagen podemos ver que estos métodos utilizan la palabra clave `synchronized`. Aunque estos métodos pueden ser llamados desde distintos hilos, no interactúan directamente con la lógica de 
+movimiento de las serpientes ni modifican el estado del tablero, por lo que su sincronización resulta innecesaria. 
+
 
