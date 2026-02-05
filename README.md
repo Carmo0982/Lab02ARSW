@@ -148,3 +148,72 @@ Incluye compilación y ejecución de pruebas JUnit. Si tienes análisis estátic
 Este laboratorio es una adaptación modernizada del ejercicio **SnakeRace** de ARSW. El enunciado de actividades se conserva para mantener los objetivos pedagógicos del curso.
 
 **Base construida por el Ing. Javier Toquica.**
+
+
+
+### 2) Correcciones mínimas y regiones críticas
+
+**Esperas Activas**
+
+Para identificar esperas activas se analizó la presencia de bucles que evaluaran condiciones de forma continua sin liberar la CPU, así como la ausencia de mecanismos de bloqueo como `sleep()` o `wait()`.
+
+En el código analizado existe un bucle while dentro del método run, sin embargo, en cada iteración el hilo ejecuta Thread.sleep(), lo que provoca que el hilo se bloquee voluntariamente y libere la CPU. Por esta razón, el bucle no constituye una espera activa.
+
+Adicionalmente, durante la ejecución del programa se observó un consumo bajo de CPU, lo cual es consistente con un diseño que evita busy-wait.
+
+**Conclusión:** No se identifican esperas activas en el sistema.
+
+---
+**Regiones Críticas y soluciones**
+
+#### Región Crítica: Clase `Snake` (completa)
+
+
+Durante la ejecución prolongada del programa se detectó el siguiente error:
+```
+Exception in thread "AWT-EventQueue-0" java.lang.NullPointerException
+    at java.base/java.util.ArrayDeque.copyElements(ArrayDeque.java:328)
+    at co.eci.snake.core.Snake.snapshot(Snake.java:34)
+```
+
+**Análisis:**
+
+La clase `Snake` es accedida concurrentemente por múltiples threads sin sincronización:
+- **SnakeRunner:** modifica el estado llamando `advance()`, lee con `head()` y `direction()`.
+- **UI:** lee el estado llamando `snapshot()` para dibujar la serpiente en la pantalla.
+
+
+**El problema:**
+El thread de UI invoca `snapshot()` para copiar `body` y simultáneamente, el thread de la serpiente ejecuta `advance()` modificando `body`. La copia del `ArrayDeque` falla al interactuar sobre una colección en modificación.
+
+**Solución implementada:**
+```java
+public synchronized Direction direction() { 
+    return direction; 
+}
+
+public synchronized void turn(Direction dir) {
+    // Validación y modificación protegidas
+    // ...
+}
+
+public synchronized Position head() { 
+    return body.peekFirst(); 
+}
+
+public synchronized Deque<Position> snapshot() { 
+    return new ArrayDeque<>(body); // Ahora thread-safe
+}
+
+public synchronized void advance(Position newHead, boolean grow) {
+    body.addFirst(newHead);
+    if (grow) maxLength++;
+    while (body.size() > maxLength) body.removeLast();
+}
+```
+
+**Justificación:**
+
+Se sincronizaron **todos los métodos públicos** de `Snake` para hacer **Exclusión mutua**, eso genera una protección de `snapshot()` porque ahora no puede ejecutarse mientras `advance()` modifica.
+
+
