@@ -73,6 +73,20 @@ co.eci.snake
 ### 1) Análisis de concurrencia
 
 - Explica **cómo** el código usa hilos para dar autonomía a cada serpiente.
+
+Respuesta:
+
+Exíte una clase llamada SnakeRunner que implementa runnable, eso quiere decir que la función de la clase
+es decir qué tarea debe hacer el  hilo. Esta clase tiene 5 atributos: `snake`, `board`, `baseSleepMs`, `turboSleepMs` y `turboTicks`.
+
+A continuación se mostrará lo que hace el hilo al iniciar:
+1. Verifíca que el hilo no esté interrumpido.
+2. Si no lo está entonces puede que la serpiente cambie de dirección en el tablero.
+3. Si la serpiente choca contra un obstáculo, esta cambia de dirección de forma aleatoria.
+4. Si la serpiente come un turbo entonces el tiempo en el que está dormido el hilo será menor por lo que la serpiente se mueve más rápido, pero con el tiempo vuelve a su velocidad normal.
+
+Cabe resaltar que cada serpiente corre su método run() en paralelo con los demás.
+
 - **Identifica** y documenta en **`el reporte de laboratorio`**:
   - Posibles **condiciones de carrera**.
   - **Colecciones** o estructuras **no seguras** en contexto concurrente.
@@ -148,3 +162,44 @@ Incluye compilación y ejecución de pruebas JUnit. Si tienes análisis estátic
 Este laboratorio es una adaptación modernizada del ejercicio **SnakeRace** de ARSW. El enunciado de actividades se conserva para mantener los objetivos pedagógicos del curso.
 
 **Base construida por el Ing. Javier Toquica.**
+
+
+
+
+## REPORTE DE LABORATORIO
+### 1) Análisis de concurrencia
+**Cómo los hilos dan autonimía a cada serpiente**
+
+Exíte una clase llamada SnakeRunner que implementa runnable, eso quiere decir que la función de la clase
+es decir qué tarea debe hacer el  hilo. Esta clase tiene 5 atributos: `snake`, `board`, `baseSleepMs`, `turboSleepMs` y `turboTicks`.
+
+A continuación se mostrará lo que hace el hilo al iniciar:
+1. Verifíca que el hilo no esté interrumpido.
+2. Si no lo está entonces puede que la serpiente cambie de dirección en el tablero.
+3. Si la serpiente choca contra un obstáculo, esta cambia de dirección de forma aleatoria.
+4. Si la serpiente come un turbo entonces el tiempo en el que está dormido el hilo será menor por lo que la serpiente se mueve más rápido, pero con el tiempo vuelve a su velocidad normal.
+
+Cabe resaltar que cada serpiente corre su método run() en paralelo con los demás.
+
+**Condiciones carrera**
+
+Hay tres candidatos posibles: `res`, `turboTicks` y `board.step(snake)`
+
+- res: es una variable local dentro del hilo asi que cada hilo tiene un res diferente por lo que no sería una condición
+carrera.
+- turboTicks: en cada interación turboTicks está disminuyendo, así que esta si sería una variable mutable. El problema es que
+la varaible no se comparte en cada hilo, es una variable "privada" de cada hilo.
+- board.step(snake): puede ser una condición de carrera porque todas las serpientes, cada una manejada con un hilo, interactuan con un mismo tablero.
+
+**Colecciones o estructuras no seguras para hilos**
+
+- HashSet: La clase Board usa esta colección para almacenar  `obstáculos`,  `ratones` y `turbos`. 
+
+¿Cuál es el inconveniente?
+
+El problema es que HashSet no es una colección segura para hilos. Cuando varias serpientes interactua al mismo tiempo con estas colecciones, pueden ocurrir condiciones de carrera. En el caso de los ratones, si una serpiente se come un ratón, el ratón debe ser 
+eliminado del Hash y además se debe poner un nuevo ratón aleatoriamente en el tablero y se debe agregar a la colección. Si otra serpiente modifíca la colección al mismo tiempo, puede que halla un resultado incosistente.
+
+- HashMap:
+**Sincronización innecesaria**
+
