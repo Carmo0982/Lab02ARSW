@@ -191,6 +191,8 @@ carrera.
 la varaible no se comparte en cada hilo, es una variable "privada" de cada hilo.
 - board.step(snake): puede ser una condición de carrera porque todas las serpientes, cada una manejada con un hilo, interactuan con un mismo tablero.
 
+- La clase **snake**: La clase es accedida concurrentemente por múltiples threads sin sincronización.
+
 **Colecciones o estructuras no seguras para hilos**
 
 - HashSet: La clase Board usa esta colección para almacenar  `obstáculos`,  `ratones` y `turbos`. 
