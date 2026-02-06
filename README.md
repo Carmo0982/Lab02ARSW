@@ -73,20 +73,6 @@ co.eci.snake
 ### 1) Análisis de concurrencia
 
 - Explica **cómo** el código usa hilos para dar autonomía a cada serpiente.
-
-Respuesta:
-
-Exíte una clase llamada SnakeRunner que implementa runnable, eso quiere decir que la función de la clase
-es decir qué tarea debe hacer el  hilo. Esta clase tiene 5 atributos: `snake`, `board`, `baseSleepMs`, `turboSleepMs` y `turboTicks`.
-
-A continuación se mostrará lo que hace el hilo al iniciar:
-1. Verifíca que el hilo no esté interrumpido.
-2. Si no lo está entonces puede que la serpiente cambie de dirección en el tablero.
-3. Si la serpiente choca contra un obstáculo, esta cambia de dirección de forma aleatoria.
-4. Si la serpiente come un turbo entonces el tiempo en el que está dormido el hilo será menor por lo que la serpiente se mueve más rápido, pero con el tiempo vuelve a su velocidad normal.
-
-Cabe resaltar que cada serpiente corre su método run() en paralelo con los demás.
-
 - **Identifica** y documenta en **`el reporte de laboratorio`**:
   - Posibles **condiciones de carrera**.
   - **Colecciones** o estructuras **no seguras** en contexto concurrente.
@@ -163,9 +149,6 @@ Este laboratorio es una adaptación modernizada del ejercicio **SnakeRace** de A
 
 **Base construida por el Ing. Javier Toquica.**
 
-
-
-
 ## REPORTE DE LABORATORIO
 ### 1) Análisis de concurrencia
 **Cómo los hilos dan autonimía a cada serpiente**
@@ -186,20 +169,20 @@ Cabe resaltar que cada serpiente corre su método run() en paralelo con los dem�
 Hay tres candidatos posibles: `res`, `turboTicks` y `board.step(snake)`
 
 - res: es una variable local dentro del hilo asi que cada hilo tiene un res diferente por lo que no sería una condición
-carrera.
+  carrera.
 - turboTicks: en cada interación turboTicks está disminuyendo, así que esta si sería una variable mutable. El problema es que
-la varaible no se comparte en cada hilo, es una variable "privada" de cada hilo.
+  la varaible no se comparte en cada hilo, es una variable "privada" de cada hilo.
 - board.step(snake): puede ser una condición de carrera porque todas las serpientes, cada una manejada con un hilo, interactuan con un mismo tablero.
 
 - La clase **snake**: La clase es accedida concurrentemente por múltiples threads sin sincronización.
 
 **Colecciones o estructuras no seguras para hilos**
 
-- HashSet: La clase Board usa esta colección para almacenar  `obstáculos`,  `ratones` y `turbos`. 
+- HashSet: La clase Board usa esta colección para almacenar  `obstáculos`,  `ratones` y `turbos`.
 
 ¿Cuál es el inconveniente?
 
-El problema es que HashSet no es una colección segura para hilos. Cuando varias serpientes interactua al mismo tiempo con estas colecciones, pueden ocurrir condiciones de carrera. En el caso de los ratones, si una serpiente se come un ratón, el ratón debe ser 
+El problema es que HashSet no es una colección segura para hilos. Cuando varias serpientes interactua al mismo tiempo con estas colecciones, pueden ocurrir condiciones de carrera. En el caso de los ratones, si una serpiente se come un ratón, el ratón debe ser
 eliminado del Hash y además se debe poner un nuevo ratón aleatoriamente en el tablero y se debe agregar a la colección. Si otra serpiente modifíca la colección al mismo tiempo, puede que halla un resultado incosistente.
 
 - HashMap: la clase Board utiliza esta estructura de datos para guardar `teleports`.
@@ -210,7 +193,73 @@ HashMap tampoco es thread-safe. Si no se protegiera adecuadamente, accesos concu
 **Sincronización innecesaria**
 ![Captura de pantalla 2026-02-05 113609.png](src/img/Captura%20de%20pantalla%202026-02-05%20113609.png)
 
-En la imagen podemos ver que estos métodos utilizan la palabra clave `synchronized`. Aunque estos métodos pueden ser llamados desde distintos hilos, no interactúan directamente con la lógica de 
+En la imagen podemos ver que estos métodos utilizan la palabra clave `synchronized`. Aunque estos métodos pueden ser llamados desde distintos hilos, no interactúan directamente con la lógica de
 movimiento de las serpientes ni modifican el estado del tablero, por lo que su sincronización resulta innecesaria. 
+
+
+### 2) Correcciones mínimas y regiones críticas
+
+**Esperas Activas**
+
+Para identificar esperas activas se analizó la presencia de bucles que evaluaran condiciones de forma continua sin liberar la CPU, así como la ausencia de mecanismos de bloqueo como `sleep()` o `wait()`.
+
+En el código analizado existe un bucle while dentro del método run, sin embargo, en cada iteración el hilo ejecuta Thread.sleep(), lo que provoca que el hilo se bloquee voluntariamente y libere la CPU. Por esta razón, el bucle no constituye una espera activa.
+
+Adicionalmente, durante la ejecución del programa se observó un consumo bajo de CPU, lo cual es consistente con un diseño que evita busy-wait.
+
+**Conclusión:** No se identifican esperas activas en el sistema.
+
+---
+**Regiones Críticas y soluciones**
+
+#### Región Crítica: Clase `Snake` (completa)
+
+
+Durante la ejecución prolongada del programa se detectó el siguiente error:
+```
+Exception in thread "AWT-EventQueue-0" java.lang.NullPointerException
+    at java.base/java.util.ArrayDeque.copyElements(ArrayDeque.java:328)
+    at co.eci.snake.core.Snake.snapshot(Snake.java:34)
+```
+
+**Análisis:**
+
+La clase `Snake` es accedida concurrentemente por múltiples threads sin sincronización:
+- **SnakeRunner:** modifica el estado llamando `advance()`, lee con `head()` y `direction()`.
+- **UI:** lee el estado llamando `snapshot()` para dibujar la serpiente en la pantalla.
+
+
+**El problema:**
+El thread de UI invoca `snapshot()` para copiar `body` y simultáneamente, el thread de la serpiente ejecuta `advance()` modificando `body`. La copia del `ArrayDeque` falla al interactuar sobre una colección en modificación.
+
+**Solución implementada:**
+```java
+public synchronized Direction direction() { 
+    return direction; 
+}
+
+public synchronized void turn(Direction dir) {
+    // Validación y modificación protegidas
+    // ...
+}
+
+public synchronized Position head() { 
+    return body.peekFirst(); 
+}
+
+public synchronized Deque<Position> snapshot() { 
+    return new ArrayDeque<>(body); // Ahora thread-safe
+}
+
+public synchronized void advance(Position newHead, boolean grow) {
+    body.addFirst(newHead);
+    if (grow) maxLength++;
+    while (body.size() > maxLength) body.removeLast();
+}
+```
+
+**Justificación:**
+
+Se sincronizaron **todos los métodos públicos** de `Snake` para hacer **Exclusión mutua**, eso genera una protección de `snapshot()` porque ahora no puede ejecutarse mientras `advance()` modifica.
 
 
