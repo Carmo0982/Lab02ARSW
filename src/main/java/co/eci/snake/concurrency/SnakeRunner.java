@@ -21,11 +21,15 @@ public final class SnakeRunner implements Runnable {
   @Override
   public void run() {
     try {
-      while (!Thread.currentThread().isInterrupted()) {
+      while (!Thread.currentThread().isInterrupted() && !snake.isDead()) {
         maybeTurn();
         var res = board.step(snake);
         if (res == Board.MoveResult.HIT_OBSTACLE) {
-          randomTurn();
+          snake.addHit();
+          if (snake.getHits() >= 3) {
+            snake.markDead();
+            break;
+          }
         } else if (res == Board.MoveResult.ATE_TURBO) {
           turboTicks = 100;
         }
