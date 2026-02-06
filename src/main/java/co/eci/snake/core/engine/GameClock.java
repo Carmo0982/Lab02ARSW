@@ -33,3 +33,4 @@ public final class GameClock implements AutoCloseable {
   public void stop()   { state.set(GameState.STOPPED); }
   @Override public void close() { scheduler.shutdownNow(); }
 }
+

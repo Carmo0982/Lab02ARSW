@@ -10,6 +10,7 @@ import co.eci.snake.core.engine.GameClock;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -21,6 +22,7 @@ public final class SnakeApp extends JFrame {
   private final JButton actionButton;
   private final GameClock clock;
   private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+  private final JLabel statsLabel;
 
   public SnakeApp() {
     super("The Snake Race");
@@ -36,10 +38,16 @@ public final class SnakeApp extends JFrame {
 
     this.gamePanel = new GamePanel(board, () -> snakes);
     this.actionButton = new JButton("Action");
+    this.statsLabel = new JLabel(" ");
+    statsLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+    JPanel bottomPanel = new JPanel(new BorderLayout());
+    bottomPanel.add(statsLabel, BorderLayout.NORTH);
+    bottomPanel.add(actionButton, BorderLayout.CENTER);
 
     setLayout(new BorderLayout());
     add(gamePanel, BorderLayout.CENTER);
-    add(actionButton, BorderLayout.SOUTH);
+    add(bottomPanel, BorderLayout.SOUTH);
 
     setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     pack();
@@ -132,10 +140,50 @@ public final class SnakeApp extends JFrame {
     if ("Action".equals(actionButton.getText())) {
       actionButton.setText("Resume");
       clock.pause();
+      new Thread(() -> {
+        try {
+          Thread.sleep(100);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        SwingUtilities.invokeLater(this::showPauseStats);
+      }).start();
     } else {
       actionButton.setText("Action");
+      statsLabel.setText(" ");
       clock.resume();
     }
+  }
+
+  private void showPauseStats() {
+    Snake longestAlive = snakes.stream()
+        .filter(s -> !s.isDead())
+        .max(Comparator.comparingInt(Snake::length))
+        .orElse(null);
+
+    Snake firstDead = snakes.stream()
+        .filter(Snake::isDead)
+        .min(Comparator.comparingLong(Snake::getDeathTime))
+        .orElse(null);
+
+    StringBuilder sb = new StringBuilder("<html>");
+    if (longestAlive != null) {
+      sb.append("<font color='green'>Serpiente viva más larga: #")
+        .append(longestAlive.getId())
+        .append(" (longitud: ").append(longestAlive.length()).append(")</font>");
+    } else {
+      sb.append("No hay serpientes vivas");
+    }
+    sb.append(" | ");
+    if (firstDead != null) {
+      sb.append("<font color='red'>Peor serpiente (primera en morir): #")
+        .append(firstDead.getId()).append("</font>");
+    } else {
+      sb.append("Ninguna ha muerto aún");
+    }
+    sb.append("</html>");
+
+    statsLabel.setText(sb.toString());
   }
 
   public static final class GamePanel extends JPanel {
