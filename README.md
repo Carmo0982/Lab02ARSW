@@ -262,4 +262,207 @@ public synchronized void advance(Position newHead, boolean grow) {
 
 Se sincronizaron **todos los métodos públicos** de `Snake` para hacer **Exclusión mutua**, eso genera una protección de `snapshot()` porque ahora no puede ejecutarse mientras `advance()` modifica.
 
+---
+
+### 3) Control de ejecución seguro (UI)
+
+#### Implementación de Iniciar/Pausar/Reanudar
+
+Se implementó un sistema completo de control de ejecución que permite **pausar y reanudar** el juego de forma segura, mostrando estadísticas consistentes sin _tearing_ (sin datos a medias).
+
+#### **Componentes Implementados**
+
+##### 1. **Botón de Control (UI)**
+
+En `SnakeApp.java`:
+```java
+private final JButton actionButton = new JButton("Action");
+private final JLabel statsLabel = new JLabel(" ");
+```
+
+El botón alterna entre tres estados:
+- **"Action"** → Al presionar, pausa el juego
+- **"Resume"** → Al presionar, reanuda el juego
+- El texto del botón cambia dinámicamente según el estado
+
+##### 2. **GameClock - Gestión de Estados**
+
+En `GameClock.java` se agregaron métodos para consultar y controlar el estado:
+```java
+public GameState getState() { 
+    return state.get(); 
+}
+
+public boolean isPaused() { 
+    return state.get() == GameState.PAUSED; 
+}
+```
+
+Estos métodos permiten que los hilos de las serpientes consulten si deben pausarse.
+
+##### 3. **Pausa Real de los Hilos**
+
+En `SnakeRunner.java`, el loop principal verifica constantemente el estado del juego:
+```java
+@Override
+public void run() {
+    try {
+        while (!Thread.currentThread().isInterrupted() && !snake.isDead()) {
+            // Check if paused and wait
+            while (clock != null && clock.isPaused()) {
+                Thread.sleep(50);  // Espera mientras está pausado
+            }
+            
+            maybeTurn();
+            var res = board.step(snake);
+            // ... resto de la lógica ...
+        }
+    } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+    }
+}
+```
+
+**Cómo funciona:**
+- Cuando el juego se pausa, cada hilo de serpiente entra en un loop de espera
+- Los hilos **NO avanzan** sus serpientes durante la pausa
+- Al reanudar, todos los hilos salen del loop de espera y continúan desde donde estaban
+
+##### 4. **Estadísticas Consistentes**
+
+En `SnakeApp.java`, el método `showPauseStats()` calcula y muestra las estadísticas:
+
+```java
+private void showPauseStats() {
+    // Serpiente viva más larga
+    Snake longestAlive = snakes.stream()
+        .filter(s -> !s.isDead())
+        .max(Comparator.comparingInt(Snake::length))
+        .orElse(null);
+    
+    // Primera serpiente en morir (peor serpiente)
+    Snake firstDead = snakes.stream()
+        .filter(Snake::isDead)
+        .min(Comparator.comparingLong(Snake::getDeathTime))
+        .orElse(null);
+    
+    // Construir mensaje HTML con colores
+    StringBuilder sb = new StringBuilder("<html>");
+    if (longestAlive != null) {
+        sb.append("<font color='green'>Serpiente viva más larga: #")
+          .append(longestAlive.getId())
+          .append(" (longitud: ").append(longestAlive.length()).append(")</font>");
+    } else {
+        sb.append("No hay serpientes vivas");
+    }
+    sb.append(" | ");
+    if (firstDead != null) {
+        sb.append("<font color='red'>Peor serpiente (primera en morir): #")
+          .append(firstDead.getId()).append("</font>");
+    } else {
+        sb.append("Ninguna ha muerto aún");
+    }
+    sb.append("</html>");
+    
+    statsLabel.setText(sb.toString());
+}
+```
+
+##### 5. **Tracking de Muerte de Serpientes**
+
+En `Snake.java` se agregaron campos para rastrear el estado vital:
+
+```java
+private volatile boolean dead = false;
+private volatile long deathTime = Long.MAX_VALUE;
+private final int id;
+private static int nextId = 0;
+private volatile int hits = 0;  // Contador de choques
+
+public void markDead() {
+    if (!dead) {
+        dead = true;
+        deathTime = System.currentTimeMillis();
+    }
+}
+
+public boolean isDead() { return dead; }
+public long getDeathTime() { return deathTime; }
+public int getId() { return id; }
+```
+
+**Lógica de muerte por 3 choques:**
+```java
+// En SnakeRunner.java
+if (res == Board.MoveResult.HIT_OBSTACLE) {
+    snake.addHit();
+    randomTurn();  // Girar para evitar chocar de nuevo
+    if (snake.getHits() >= 3) {
+        snake.markDead();
+        break;  // Terminar el hilo
+    }
+}
+```
+
+#### **Flujo de Pausa/Reanudar**
+
+1. **Usuario presiona "Action" o SPACE:**
+   ```java
+   private void togglePause() {
+       if ("Action".equals(actionButton.getText())) {
+           actionButton.setText("Resume");
+           clock.pause();
+           // Esperar que los hilos se detengan, luego mostrar stats
+           new Thread(() -> {
+               try {
+                   Thread.sleep(100);  // Dar tiempo a que se detengan
+               } catch (InterruptedException e) {
+                   Thread.currentThread().interrupt();
+               }
+               SwingUtilities.invokeLater(this::showPauseStats);
+           }).start();
+       } else {
+           actionButton.setText("Action");
+           statsLabel.setText(" ");
+           clock.resume();
+       }
+   }
+   ```
+
+2. **GameClock cambia su estado a PAUSED**
+
+3. **Todos los hilos de serpientes detectan el cambio y se pausan**
+
+4. **Después de 100ms, se calculan y muestran las estadísticas**
+
+5. **Usuario presiona "Resume":**
+   - Se limpia el label de estadísticas
+   - GameClock cambia a RUNNING
+   - Todos los hilos salen de su loop de espera
+   - Las serpientes continúan desde su posición actual
+
+#### 🛡**Prevención de Tearing (Consistencia)**
+
+**¿Qué es el tearing?**
+Es cuando los datos mostrados están "a medias" - por ejemplo, mostrar estadísticas mientras las serpientes siguen moviéndose, causando que los números cambien o sean inconsistentes.
+
+**Cómo lo prevenimos:**
+
+1. **Espera de 100ms**: Damos tiempo a que todos los hilos entren en pausa antes de calcular estadísticas
+2. **Uso de `volatile`**: Los campos `dead`, `deathTime`, `hits` usan `volatile` para garantizar visibilidad entre hilos
+3. **Método `synchronized`**: `Snake.length()` y `Snake.snapshot()` están sincronizados
+4. **Copia inmutable**: Las estadísticas se calculan una vez y se muestran en un label (no se recalculan continuamente)
+
+####  **Capturas de Pantalla**
+
+##### Imagen 1: Juego en Ejecución
+![Juego en Ejecución](src/img/juego_ejecutando.png)
+
+
+##### Imagen 2: Juego Pausado con Estadísticas
+![Juego Pausado](src/img/juego_pausado.png)
+
+##### Imagen 3: Juego Pausado con Serpiente Muerta
+![Juego Pausado](src/img/juego_serpiente.png)
+
 
